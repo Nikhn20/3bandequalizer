@@ -1,0 +1,165 @@
+function [] = Lydprojektminiprojekt_UI()
+    % create the UI figure
+    f = figure('Position', [120, 120, 800, 600]);
+
+    % load the audio file
+    [song, Fs] = audioread('SlapAf.mp3');
+
+    % initialize gain values
+    gain_low = 0;
+    gain_mid = 0;
+    gain_high = 0;
+
+    % create text labels for each frequency band
+    text_low = uicontrol('Style', 'text', 'String', '1. band 20 Hz', ...
+        'Position', [20, 510, 90, 20]);
+    text_mid = uicontrol('Style', 'text', 'String', '2. band 500 Hz', ...
+        'Position', [120, 510, 90, 20]);
+    text_high = uicontrol('Style', 'text', 'String', '3. band 5000 Hz', ...
+        'Position', [220, 510, 90, 20]);
+
+    % create sliders and edit fields for gain control
+    slider_low = uicontrol('Style', 'slider', 'Min', -6, 'Max', 6, 'Value', 0, ...
+        'Position', [50, 300, 20, 200], 'Callback', @update_plot);
+    edit_low = uicontrol('Style', 'edit', 'String', '0', ...
+        'Position', [35, 270, 50, 20]);
+
+    slider_mid = uicontrol('Style', 'slider', 'Min', -6, 'Max', 6, 'Value', 0, ...
+        'Position', [150, 300, 20, 200], 'Callback', @update_plot);
+    edit_mid = uicontrol('Style', 'edit', 'String', '0', ...
+        'Position', [135, 270, 50, 20]);
+
+    slider_high = uicontrol('Style', 'slider', 'Min', -6, 'Max', 6, 'Value', 0, ...
+        'Position', [250, 300, 20, 200], 'Callback', @update_plot);
+    edit_high = uicontrol('Style', 'edit', 'String', '0', ...
+        'Position', [235, 270, 50, 20]);
+
+    % create button to play the sound
+    play_button = uicontrol('Style', 'pushbutton', 'String', 'Play sound', ...
+        'Position', [20, 100, 100, 50], 'Callback', @play_sound);
+
+    % create button to stop the sound
+    stop_button = uicontrol('Style', 'pushbutton', 'String', 'Stop sound', ...
+        'Position', [180, 100, 100, 50], 'Callback', @stop_sound);
+
+    % create axes for the plot
+    ax = axes('Position', [0.4, 0.1, 0.55, 0.8]);
+    set(ax, 'XScale', 'log');  % set X-axis to logarithmic scale
+    xlim(ax, [20, 20000]);     % set X-axis limits
+    ylim(ax, [-18, 18]);       % set Y-axis limits
+
+    % set X-axis tick marks and labels
+    set(ax, 'XTick', [20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000]);
+    set(ax, 'XTickLabel', {'20', '50', '100', '200', '500', '1k', '2k', '5k', '10k', '20k'});
+
+    % audio player object
+    player = [];
+
+    function update_plot(~, ~)
+        % get gain values from sliders
+        gain_low = get(slider_low, 'Value');
+        gain_mid = get(slider_mid, 'Value');
+        gain_high = get(slider_high, 'Value');
+
+        % update edit fields
+        set(edit_low, 'String', num2str(gain_low));
+        set(edit_mid, 'String', num2str(gain_mid));
+        set(edit_high, 'String', num2str(gain_high));
+
+        % apply filters to the song
+        filtered_song = low_freq_shelving_filter(song, gain_low, 50, Fs, 0.707);
+        filtered_song = midEqualizer(filtered_song, 500, 100, gain_mid, Fs);
+        filtered_song = high_freq_shelving_filter(filtered_song, gain_high, 5000, Fs, 0.707);
+
+        % plot the combined frequency response of the filters
+        cla(ax);
+        hold(ax, 'on');
+        plot_combined_response(ax, gain_low, gain_mid, gain_high, Fs);
+        hold(ax, 'off');
+    end
+
+    function plot_combined_response(ax, gain_low, gain_mid, gain_high, Fs)
+        % calculate and plot the combined frequency response of the filters
+        [b_low, a_low] = calculate_filter_coefficients(gain_low, 50, Fs, 0.707, 'Low');
+        [b_mid, a_mid] = calculate_filter_coefficients(gain_mid, 500, Fs, 0.707, 'Mid');
+        [b_high, a_high] = calculate_filter_coefficients(gain_high, 5000, Fs, 0.707, 'High');
+
+        [h_low, w] = freqz(b_low, a_low, 2048, Fs);
+        [h_mid, ~] = freqz(b_mid, a_mid, 2048, Fs);
+        [h_high, ~] = freqz(b_high, a_high, 2048, Fs);
+
+        % combine the magnitude responses
+        h_combined = abs(h_low) .* abs(h_mid) .* abs(h_high);
+
+        % plot the combined frequency response
+        plot(ax, w, 20*log10(h_combined), 'DisplayName', 'Combined Filter');
+        xlabel(ax, 'Frequency (Hz)');
+        ylabel(ax, 'Magnitude (dB)');
+        title(ax, '3 - Band graphic equalizer graph');
+        grid(ax, 'on');
+        ylim(ax, [-6, 6]);
+    end
+
+    function [b, a] = calculate_filter_coefficients(G, fc, fs, Q, type)
+        % calculate filter coefficients based on the type of filter
+        omega_c = 2 * pi * fc / fs;
+        A = 10^(G/40);
+        beta = sqrt(A + A^2 * (1 / Q^2 - 1));
+        switch type
+            case 'Low'
+                b = [A * ((A + 1) - (A - 1) * cos(omega_c) + beta * sin(omega_c)), ...
+                     2 * A * ((A - 1) - (A + 1) * cos(omega_c)), ...
+                     A * ((A + 1) - (A - 1) * cos(omega_c) - beta * sin(omega_c))];
+                a = [(A + 1) + (A - 1) * cos(omega_c) + beta * sin(omega_c), ...
+                     -2 * ((A - 1) + (A + 1) * cos(omega_c)), ...
+                     (A + 1) + (A - 1) * cos(omega_c) - beta * sin(omega_c)];
+            case 'Mid'
+                alpha = sin(omega_c) / (2 * Q);
+                b = [1 + alpha * A, -2 * cos(omega_c), 1 - alpha * A];
+                a = [1 + alpha / A, -2 * cos(omega_c), 1 - alpha / A];
+            case 'High'
+                b = [A * ((A + 1) + (A - 1) * cos(omega_c) + beta * sin(omega_c)), ...
+                     -2 * A * ((A - 1) + (A + 1) * cos(omega_c)), ...
+                     A * ((A + 1) + (A - 1) * cos(omega_c) - beta * sin(omega_c))];
+                a = [(A + 1) - (A - 1) * cos(omega_c) + beta * sin(omega_c), ...
+                     2 * ((A - 1) - (A + 1) * cos(omega_c)), ...
+                     (A + 1) - (A - 1) * cos(omega_c) - beta * sin(omega_c)];
+        end
+        b = b / a(1);
+        a = a / a(1);
+    end
+
+    function play_sound(~, ~)
+        % apply filters to the song
+        filtered_song = low_freq_shelving_filter(song, gain_low, 50, Fs, 0.707);
+        filtered_song = midEqualizer(filtered_song, 500, 100, gain_mid, Fs);
+        filtered_song = high_freq_shelving_filter(filtered_song, gain_high, 5000, Fs, 0.707);
+
+        % create an audioplayer object and play the filtered song
+        player = audioplayer(filtered_song, Fs);
+        play(player);
+    end
+
+    function stop_sound(~, ~)
+        % stop the sound if it is playing
+        if ~isempty(player)
+            stop(player);
+        end
+    end
+
+    % original filter functions
+    function filtered_signal = high_freq_shelving_filter(input_signal, G, fc, fs, Q)
+        [b, a] = calculate_filter_coefficients(G, fc, fs, Q, 'High');
+        filtered_signal = filter(b, a, input_signal);
+    end
+
+    function filtered_signal = low_freq_shelving_filter(input_signal, G, fc, fs, Q)
+        [b, a] = calculate_filter_coefficients(G, fc, fs, Q, 'Low');
+        filtered_signal = filter(b, a, input_signal);
+    end
+
+    function output_signal_mid = midEqualizer(input_signal, center_frequency_mid, bandwidth_mid, gain_mid, Fs)
+        [b, a] = calculate_filter_coefficients(gain_mid, center_frequency_mid, Fs, 2*pi*bandwidth_mid/Fs, 'Mid');
+        output_signal_mid = filter(b, a, input_signal);
+    end
+end
